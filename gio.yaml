@@ -1,0 +1,185 @@
+---
+# Backend ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-config
+data:
+  app.py: |
+    from flask import Flask, jsonify
+    from flask_cors import CORS
+    import os
+
+    app = Flask(__name__)
+    CORS(app)  # allow requests from any origin
+
+    DATA_DIR = "/data"
+    COUNTER_FILE = os.path.join(DATA_DIR, "counter.txt")
+    LOG_FILE = os.path.join(DATA_DIR, "requests.log")
+
+    os.makedirs(DATA_DIR, exist_ok=True)
+
+    def read_counter():
+        if not os.path.exists(COUNTER_FILE):
+            return 0
+        with open(COUNTER_FILE, "r") as f:
+            return int(f.read())
+
+    def write_counter(value):
+        with open(COUNTER_FILE, "w") as f:
+            f.write(str(value))
+
+    @app.route("/api/stats")
+    def stats():
+        count = read_counter() + 1
+        write_counter(count)
+        with open(LOG_FILE, "a") as log:
+            log.write(f"Request number {count}\n")
+        return jsonify({"requests": count})
+
+    app.run(host="0.0.0.0", port=5000)
+---
+# Backend Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      containers:
+        - name: backend
+          image: python:3.11-slim
+          command:
+            - sh
+            - -c
+            - |
+              pip install flask flask-cors && python /app/app.py
+          ports:
+            - containerPort: 5000
+          volumeMounts:
+            - name: app-code
+              mountPath: /app
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: app-code
+          configMap:
+            name: backend-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: backend-pvc
+---
+# Backend NodePort Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-service
+spec:
+  selector:
+    app: backend
+  type: NodePort
+  ports:
+    - port: 5000
+      targetPort: 5000
+      nodePort: 30500
+---
+# Backend PVC (EFS)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: backend-pvc
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: efs-sc
+---
+# Frontend ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: frontend-config
+data:
+  index.html: |
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>K8s Frontend</title>
+      <style>
+        body { font-family: Arial; text-align: center; padding-top: 100px; background: linear-gradient(135deg, #1e3c72, #2a5298); color: white; }
+        .card { background: rgba(255,255,255,0.1); padding: 40px; border-radius: 12px; width: 300px; margin: auto; }
+        button { padding: 10px 20px; border: none; background: #00c6ff; color: black; font-size: 16px; cursor: pointer; border-radius: 6px; }
+      </style>
+    </head>
+    <body>
+      <div class="card">
+        <h2>Kubernetes App</h2>
+        <p id="count">Requests: 0</p>
+        <button onclick="fetchData()">Call Backend</button>
+      </div>
+      <script>
+        function fetchData() {
+          // Browser will reach backend via NodePort on same node
+          fetch(`http://${window.location.hostname}:30500/api/stats`)
+            .then(res => res.json())
+            .then(data => {
+              document.getElementById("count").innerText =
+                "Requests: " + data.requests;
+            })
+            .catch(err => console.error("Error fetching backend:", err));
+        }
+      </script>
+    </body>
+    </html>
+---
+# Frontend Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+        - name: frontend
+          image: nginx:alpine
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            - name: frontend-code
+              mountPath: /usr/share/nginx/html
+      volumes:
+        - name: frontend-code
+          configMap:
+            name: frontend-config
+---
+# Frontend NodePort Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-service
+spec:
+  selector:
+    app: frontend
+  type: NodePort
+  ports:
+    - port: 80
+      targetPort: 80
+      nodePort: 30080

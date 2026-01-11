@@ -1,0 +1,15 @@
+variable "aws_region" {
+  default = "us-east-1"
+}
+
+variable "project" {
+  default = "k8s-cluster"
+}
+
+variable "instance_type" {
+  default = "t3.small"
+}
+
+variable "key_name" {
+  description = "muuu"
+}

@@ -1,0 +1,36 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: frontend-config
+data:
+  index.html: |
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>K8s Frontend</title>
+      <style>
+        body { font-family: Arial; text-align: center; padding-top: 100px; background: linear-gradient(135deg, #1e3c72, #2a5298); color: white; }
+        .card { background: rgba(255,255,255,0.1); padding: 40px; border-radius: 12px; width: 300px; margin: auto; }
+        button { padding: 10px 20px; border: none; background: #00c6ff; color: black; font-size: 16px; cursor: pointer; border-radius: 6px; }
+      </style>
+    </head>
+    <body>
+      <div class="card">
+        <h2>Kubernetes App</h2>
+        <p id="count">Requests: 0</p>
+        <button onclick="fetchData()">Call Backend</button>
+      </div>
+      <script>
+        function fetchData() {
+          // Browser will reach backend via NodePort on same node
+          fetch(`http://${window.location.hostname}:30500/api/stats`)
+            .then(res => res.json())
+            .then(data => {
+              document.getElementById("count").innerText =
+                "Requests: " + data.requests;
+            })
+            .catch(err => console.error("Error fetching backend:", err));
+        }
+      </script>
+    </body>
+    </html>
